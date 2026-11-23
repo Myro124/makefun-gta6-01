@@ -1,79 +1,66 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// Screenshot scenes behind ?shot=start|drive|mission|wanted (with &seed=N).
+// Each one sets up the real world in a staged state and steps the simulation
+// forward briefly, so the frame is what real gameplay looks like and the same
+// seed always gives the same frame. Staging is kept short and the player's
+// health is restored afterwards, so a shot never shows a dying player.
+import { STEP } from './config.js';
+import { SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
-
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
-    }
+function stepWorld(world, seconds, ctrl) {
+  const s = world.state;
+  for (let i = 0; i < seconds / STEP; i += 1) {
+    world.step(STEP, ctrl);
+    if (s.over) break;
   }
-  return Infinity;
+}
+function putInCar(world, car, x, y, angle) {
+  const s = world.state;
+  car.x = x; car.y = y; car.angle = angle; car.speed = 0; car.health = 100; car.wreck = false;
+  s.player.x = x; s.player.y = y; s.player.angle = angle;
+  s.player.inCar = true; s.player.carId = car.id; car.occupied = true; car.driver = 'player';
 }
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
-    }
-  }
-  return best;
-}
-
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
 export function stageShot(name, world) {
   world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
+  const s = world.state;
+  if (name === 'start') {
+    s.player.x = 1200; s.player.y = 1100;
+    stepWorld(world, 3, { move: { x: 0, y: 0, sprint: false }, shoot: false, reload: false, enter: false, aimAngle: -Math.PI / 2 });
     return { screen: SCREEN_TITLE, best: 0 };
   }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
+  if (name === 'drive') {
+    const car = s.cars.find((c) => c.kind === 'parked');
+    if (car) putInCar(world, car, 700, 1100, 0);
+    stepWorld(world, 2.2, { move: { x: 0, y: -1, sprint: false }, shoot: false, reload: false, enter: false, aimAngle: 0 });
+    s.player.health = 100;
+    return { screen: SCREEN_PLAY, best: 0 };
   }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  if (name === 'mission') {
+    s.missionIndex = 2; s.missionStage = 'guards'; s.guardsLeft = 4;
+    s.player.x = 1950; s.player.y = 1450;
+    s.player.angle = Math.atan2(1620 - 1450, 2180 - 1950);
+    s.guards.length = 0;
+    const spots = [[-70, -40], [60, -60], [-40, 70], [80, 40]];
+    for (const [dx, dy] of spots) s.guards.push({ x: 2180 + dx, y: 1620 + dy, angle: 0, health: 60, alive: true, fireT: 3, cop: false, arrestT: 0 });
+    s.message = 'Harbor Lights: take down the 4 warehouse guards.'; s.messageT = 6;
+    stepWorld(world, 0.8, { move: { x: 0, y: 0, sprint: false }, shoot: true, reload: false, enter: false, aimAngle: s.player.angle });
+    s.player.health = 100; s.wanted = 1;
+    return { screen: SCREEN_PLAY, best: 0 };
+  }
+  // wanted
+  const car = s.cars.find((c) => c.kind === 'parked');
+  if (car) putInCar(world, car, 700, 650, 0);
+  s.wanted = 3; s.crimeT = 0;
+  s.message = 'Wanted — 3 stars. Lose the police.'; s.messageT = 6;
+  stepWorld(world, 2.2, { move: { x: 0, y: -1, sprint: false }, shoot: false, reload: false, enter: false, aimAngle: 0 });
+  // Two police cars closing in, staged close to the player.
+  const px = s.player.x, py = s.player.y;
+  s.cars.push({ id: 900, x: px - 260, y: py - 120, angle: 0, speed: 300, health: 100, color: '#3a6fd8', kind: 'police', occupied: true, driver: 'ai', dirX: 1, dirY: 0, road: 'y', police: true, wreck: false });
+  s.cars.push({ id: 901, x: px + 180, y: py + 200, angle: -Math.PI / 2, speed: 260, health: 100, color: '#3a6fd8', kind: 'police', occupied: true, driver: 'ai', dirX: 0, dirY: -1, road: 'x', police: true, wreck: false });
+  stepWorld(world, 0.6, { move: { x: 0, y: -1, sprint: false }, shoot: false, reload: false, enter: false, aimAngle: 0 });
+  s.player.health = 100;
+  const pc = s.cars.find((c) => c.id === s.player.carId);
+  if (pc) pc.health = 100;
+  s.wanted = 3;
+  return { screen: SCREEN_PLAY, best: 0 };
 }
