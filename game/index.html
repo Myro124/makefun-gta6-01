@@ -3,17 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
+<meta name="description" content="Solmar Heat — a top-down open-world crime game. Walk and drive around Solmar, steal cars, take jobs from Ana Solis, and stay out of trouble with the police.">
+<title>Solmar Heat — open-world crime game</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
+<canvas id="game" aria-label="Solmar Heat: a top-down open-world crime game. Walk and drive around Solmar, steal cars, take jobs from Ana Solis, and stay out of trouble with the police."></canvas>
 <p id="status" role="status" aria-live="polite"></p>
+<noscript><p style="color:#f2f4f7;font-family:system-ui,sans-serif;padding:2em">Solmar Heat needs JavaScript to run — it is a plain canvas game with no network requests.</p></noscript>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
